@@ -1,0 +1,4 @@
+# Google AdSense ads.txt
+# Bu satırdaki ca-pub-XXXXXXXXXXXXXXXX yerine kendi yayıncı kimliğinizi yazın.
+# Dosya sitenin KÖK dizininde (ornek.com/ads.txt) yayında olmalıdır.
+google.com, pub-XXXXXXXXXXXXXXXX, DIRECT, f08c47fec0942fa0
