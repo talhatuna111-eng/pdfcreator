@@ -616,7 +616,7 @@ refreshUseLabel();
 
 /* ---------- Çerez onayı + AdSense yükleyici ---------- */
 (function(){
-  var ADS_CLIENT='ca-pub-XXXXXXXXXXXXXXXX'; /* <-- kendi AdSense yayıncı kimliğiniz */
+  var ADS_CLIENT='ca-pub-8183074879359519'; /* <-- kendi AdSense yayıncı kimliğiniz */
   var KEY='pdfcreator_consent';
   function loadAds(personalized){
     if(window.__adsLoaded) return; window.__adsLoaded=true;

@@ -1,4 +1,4 @@
-# Google AdSense ads.txt
-# Bu satırdaki ca-pub-XXXXXXXXXXXXXXXX yerine kendi yayıncı kimliğinizi yazın.
-# Dosya sitenin KÖK dizininde (ornek.com/ads.txt) yayında olmalıdır.
-google.com, pub-XXXXXXXXXXXXXXXX, DIRECT, f08c47fec0942fa0
+# Google AdSense ads.txt — PDF Creator
+# Yayıncı kimliği işlendi. Bu dosya sitenin KÖK dizininde
+# (pdf-creators.com/ads.txt) yayında olmalıdır.
+google.com, pub-8183074879359519, DIRECT, f08c47fec0942fa0
