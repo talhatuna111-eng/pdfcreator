@@ -46,7 +46,7 @@ const ICONS = {
   pdf2img:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><circle cx="10" cy="13" r="1.5"/><path d="m8 19 3-3 3 3"/></svg>',
   compress:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/><path d="M9 12h6"/></svg>',
   pagenum:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M9 17h6"/></svg>',
-  text:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 5h14M5 10h14M5 15h9M5 20h6"/></svg>',
+  extracttext:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 5h14M5 10h14M5 15h9M5 20h6"/></svg>',
 };
 
 const TOOLS = [
@@ -613,6 +613,30 @@ const OPS={
 
 refreshUseLabel();
 
+
+/* ---------- Çerez onayı + AdSense yükleyici ---------- */
+(function(){
+  var ADS_CLIENT='ca-pub-XXXXXXXXXXXXXXXX'; /* <-- kendi AdSense yayıncı kimliğiniz */
+  var KEY='pdfcreator_consent';
+  function loadAds(personalized){
+    if(window.__adsLoaded) return; window.__adsLoaded=true;
+    window.adsbygoogle=window.adsbygoogle||[];
+    if(!personalized){ window.adsbygoogle.requestNonPersonalizedAds=1; }
+    var s=document.createElement('script'); s.async=true; s.setAttribute('crossorigin','anonymous');
+    s.src='https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client='+ADS_CLIENT;
+    document.head.appendChild(s);
+  }
+  window.__loadAds=loadAds;
+  var saved=null; try{ saved=localStorage.getItem(KEY); }catch(e){}
+  if(saved==='all'){ loadAds(true); return; }
+  if(saved==='none'){ return; }
+  var bar=document.getElementById('cookie'); if(!bar) return;
+  bar.classList.add('show');
+  function choose(v){ try{ localStorage.setItem(KEY,v); }catch(e){} bar.classList.remove('show'); if(v==='all') loadAds(true); }
+  var a=document.getElementById('ckAll'), n=document.getElementById('ckNo');
+  if(a) a.onclick=function(){ choose('all'); };
+  if(n) n.onclick=function(){ choose('none'); };
+})();
 
 /* ---------- Hero demo (otomatik akan önizleme) ---------- */
 (function(){
