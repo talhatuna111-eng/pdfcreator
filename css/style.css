@@ -208,6 +208,7 @@ input[type=text]:focus,select:focus{outline:none;border-color:var(--red)}
 .status{margin-top:16px;font-size:14px;display:none;align-items:center;gap:10px;padding:13px 16px;border-radius:11px}
 .status.show{display:flex}
 .status.work{background:var(--soft);color:var(--text)}
+.status.info{background:#EFF6FF;color:#1D4ED8;border:1px solid #BFDBFE}
 .status.ok{background:#ECFDF5;color:#16A34A;border:1px solid #bbf7d0}
 .status.err{background:#FEF2F2;color:#DC2626;border:1px solid #fecaca}
 .spinner{width:16px;height:16px;border:2px solid var(--line-2);border-top-color:var(--red);border-radius:50%;animation:spin .7s linear infinite}

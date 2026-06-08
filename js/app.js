@@ -237,9 +237,21 @@ function addFiles(list){
   if(!current.multiple) items=[];
   arr.forEach(f=>items.push({id:++uid,file:f,name:f.name,size:f.size}));
   renderFiles();
-  if(current.id==='reorder') loadThumbs();
-  setStatus('');
+  if(current.id==='reorder'){ loadThumbs(); return; }
+  const big=items.find(it=>it.size>25*1024*1024);
+  if(big) setStatus('Not: Büyük dosyalarda işlem, cihazınızın belleğine bağlı olarak biraz sürebilir. Masaüstü tarayıcı daha hızlı ve güvenilirdir.','info');
+  else setStatus('');
 }
+
+/* Bellek dostu: çok sayfalı/büyük belgelerde render ölçeğini sınırlar (donma/çökme önler) */
+function capScale(base,pages){
+  if(pages>80) return Math.min(base,1.4);
+  if(pages>40) return Math.min(base,1.8);
+  if(pages>20) return Math.min(base,2.2);
+  return base;
+}
+/* Arayüzün nefes alması için kısa duraklama */
+function yieldUI(){ return new Promise(r=>setTimeout(r,0)); }
 
 function renderFiles(){
   fileList.innerHTML='';
@@ -285,6 +297,7 @@ function setStatus(msg,type){
   statusEl.className='status show '+(type||'work');
   const ic = type==='work'?'<span class="spinner"></span>'
     : type==='ok'?'<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6 9 17l-5-5"/></svg>'
+    : type==='info'?'<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>'
     : '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>';
   statusEl.innerHTML=ic+'<span>'+msg+'</span>';
 }
@@ -382,10 +395,13 @@ document.getElementById('clearBtn').onclick=()=>{ items=[]; thumbState=null; ren
 const OPS={
   async merge(){
     const out=await PDFDocument.create();
+    let k=0;
     for(const it of items){
+      setStatus(`Dosya ${++k}/${items.length} ekleniyor…`,'work');
       const src=await PDFDocument.load(await it.file.arrayBuffer(),{ignoreEncryption:true});
       const pages=await out.copyPages(src,src.getPageIndices());
       pages.forEach(p=>out.addPage(p));
+      await yieldUI();
     }
     download(new Blob([await out.save()],{type:'application/pdf'}),'pdf-creator-birlestirilmis.pdf');
     setStatus('Tamamlandı — '+items.length+' dosya birleştirildi.','ok');
@@ -490,13 +506,17 @@ const OPS={
     for(let i=1;i<=pdf.numPages;i++){
       setStatus(`Sayfa ${i}/${pdf.numPages} işleniyor…`,'work');
       const page=await pdf.getPage(i);
-      const vp=page.getViewport({scale:scale*1.5});
+      const rscale=capScale(scale*1.5, pdf.numPages);
+      const vp=page.getViewport({scale:rscale});
       const c=document.createElement('canvas'); c.width=vp.width; c.height=vp.height;
       const ctx=c.getContext('2d'); ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
       if(fmt==='jpg'){ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);}
-      await page.render({canvasContext:ctx,viewport:vp,intent:'print'}).promise;
-      const blob=await new Promise(r=>c.toBlob(r,mime, fmt==='png'?undefined:0.96));
+      await page.render({canvasContext:ctx,viewport:vp,intent: pdf.numPages<=12?'print':'display'}).promise;
+      const blob=await new Promise(r=>c.toBlob(r,mime, fmt==='png'?undefined:0.95));
       zip.file(`${base}-${String(i).padStart(3,'0')}.${ext}`,blob);
+      if(page.cleanup) page.cleanup();
+      c.width=c.height=0;
+      await yieldUI();
     }
     if(pdf.numPages===1){
       const only=Object.values(zip.files)[0];
@@ -542,7 +562,7 @@ const OPS={
         setStatus(`Sayfa ${i}/${pdf.numPages} sıkıştırılıyor…`,'work');
         const page=await pdf.getPage(i);
         const vpPt=page.getViewport({scale:1});
-        const vp=page.getViewport({scale:conf.s});
+        const vp=page.getViewport({scale:capScale(conf.s, pdf.numPages)});
         const c=document.createElement('canvas'); c.width=vp.width; c.height=vp.height;
         const ctx=c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height);
         await page.render({canvasContext:ctx,viewport:vp}).promise;
@@ -550,6 +570,9 @@ const OPS={
         const img=await out.embedJpg(await jpgBlob.arrayBuffer());
         const p=out.addPage([vpPt.width,vpPt.height]);
         p.drawImage(img,{x:0,y:0,width:vpPt.width,height:vpPt.height});
+        if(page.cleanup) page.cleanup();
+        c.width=c.height=0;
+        await yieldUI();
       }
       outBytes=await out.save();
     }
