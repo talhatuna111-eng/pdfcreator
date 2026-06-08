@@ -2,7 +2,7 @@
    PDF Creator — İstemci taraflı PDF araç seti
    Tüm işlemler tarayıcıda; pdf-lib + pdf.js + JSZip
    ===================================================================== */
-const { PDFDocument, degrees } = PDFLib;
+const { PDFDocument, degrees, StandardFonts, rgb } = PDFLib;
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
@@ -45,17 +45,21 @@ const ICONS = {
   img2pdf:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>',
   pdf2img:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><circle cx="10" cy="13" r="1.5"/><path d="m8 19 3-3 3 3"/></svg>',
   compress:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/><path d="M9 12h6"/></svg>',
+  pagenum:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M9 17h6"/></svg>',
+  text:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 5h14M5 10h14M5 15h9M5 20h6"/></svg>',
 };
 
 const TOOLS = [
-  {id:'merge',   title:'Birleştir',     desc:'Birden çok PDF\'i tek dosyada topla.', accept:'.pdf', multiple:true},
-  {id:'split',   title:'Ayır',          desc:'Sayfaları ayrı dosyalara böl.',        accept:'.pdf', multiple:false},
-  {id:'delete',  title:'Sayfa Sil',     desc:'İstemediğin sayfaları çıkar.',          accept:'.pdf', multiple:false},
-  {id:'rotate',  title:'Döndür',        desc:'Sayfaları 90° / 180° çevir.',          accept:'.pdf', multiple:false},
-  {id:'reorder', title:'Sırala',        desc:'Sayfaları sürükleyerek diz.',          accept:'.pdf', multiple:false},
-  {id:'img2pdf', title:'Resimden PDF',  desc:'JPG / PNG görselleri PDF yap.',         accept:'image/*', multiple:true},
-  {id:'pdf2img', title:'PDF\'den Resim',desc:'Sayfaları JPG / PNG olarak indir.',     accept:'.pdf', multiple:false},
-  {id:'compress',title:'Sıkıştır',      desc:'Dosya boyutunu küçült.',                accept:'.pdf', multiple:false},
+  {id:"merge",       title:"PDF Birleştir",  desc:"Birden çok PDF'i tek dosyada birleştirin.",        accept:".pdf",   multiple:true,  tint:"indigo"},
+  {id:"split",       title:"PDF Böl",        desc:"PDF'inizdeki sayfaları kolayca ayırın.",            accept:".pdf",   multiple:false, tint:"rose"},
+  {id:"compress",    title:"PDF Sıkıştır",   desc:"Boyutu küçültün, kaliteden ödün vermeyin.",         accept:".pdf",   multiple:false, tint:"violet"},
+  {id:"rotate",      title:"PDF Döndür",     desc:"Sayfaları 90° / 180° çevirin.",                     accept:".pdf",   multiple:false, tint:"amber"},
+  {id:"delete",      title:"Sayfa Sil",      desc:"İstemediğiniz sayfaları çıkarın.",                  accept:".pdf",   multiple:false, tint:"red"},
+  {id:"reorder",     title:"Sayfa Sırala",   desc:"Sayfaları sürükleyerek yeniden dizin.",             accept:".pdf",   multiple:false, tint:"teal"},
+  {id:"img2pdf",     title:"Resimden PDF",   desc:"JPG / PNG görselleri PDF'e dönüştürün.",            accept:"image/*",multiple:true,  tint:"sky"},
+  {id:"pdf2img",     title:"PDF'den JPG",    desc:"Sayfaları yüksek kaliteli görsele dönüştürün.",     accept:".pdf",   multiple:false, tint:"green"},
+  {id:"pagenum",     title:"Sayfa Numarası", desc:"PDF sayfalarına numara ekleyin.",                   accept:".pdf",   multiple:false, tint:"fuchsia"},
+  {id:"extracttext", title:"PDF'den Metin",  desc:"Metni .txt dosyası olarak dışa aktarın.",           accept:".pdf",   multiple:false, tint:"slate"},
 ];
 
 /* ---------- Durum ---------- */
@@ -69,13 +73,12 @@ const grid=document.getElementById('toolGrid');
 TOOLS.forEach((t,i)=>{
   const el=document.createElement('button');
   el.className='tool';
-  el.innerHTML=`<span class="num">${String(i+1).padStart(2,'0')}</span>
-    <div class="ic">${ICONS[t.id]}</div>
+  el.innerHTML=`<div class="ic tint-${t.tint}">${ICONS[t.id]}</div>
     <h3>${t.title}</h3><p>${t.desc}</p>`;
   el.onclick=()=>openTool(t.id);
   grid.appendChild(el);
 });
-document.getElementById('toolCount').textContent=`${TOOLS.length} araç`;
+var _tc=document.getElementById('toolCount'); if(_tc)_tc.textContent=`${TOOLS.length} araç`;
 
 /* ---------- DOM kısayolları ---------- */
 const ws=document.getElementById('workspace');
@@ -96,7 +99,8 @@ function openTool(id){
   document.getElementById('runLabel').textContent={
     merge:'Birleştir', split:'Ayır ve İndir', delete:'Sil ve İndir',
     rotate:'Döndür ve İndir', reorder:'Yeni Sırayla İndir',
-    img2pdf:'PDF Oluştur', pdf2img:'Resimleri İndir', compress:'Sıkıştır ve İndir'
+    img2pdf:'PDF Oluştur', pdf2img:'Resimleri İndir', compress:'Sıkıştır ve İndir',
+    pagenum:'Numaralandır ve İndir', extracttext:'Metni Çıkar (.txt)'
   }[id];
   fileInput.accept=current.accept; fileInput.multiple=current.multiple;
   document.getElementById('dropTitle').textContent = current.id==='img2pdf'
@@ -186,6 +190,20 @@ function buildOpts(){
       }[v];
     });
     seg('segLvl');
+  }
+  else if(id==='pagenum'){
+    optsBox.innerHTML=`
+      <div class="opt-row"><span class="opt-label">Konum</span>
+        <div class="seg" id="segPos"><button class="on" data-v="bc">Alt orta</button><button data-v="br">Alt sağ</button><button data-v="bl">Alt sol</button></div></div>
+      <div class="opt-row"><span class="opt-label">Biçim</span>
+        <div class="seg" id="segFmt2"><button class="on" data-v="n">1</button><button data-v="nslash">1 / N</button><button data-v="sayfa">Sayfa 1</button></div></div>
+      <div class="opt-row"><span class="opt-label">Başlangıç no</span>
+        <input type="text" id="numStart" placeholder="1" style="min-width:90px" />
+        <span class="hint">İlk sayfanın numarası.</span></div>`;
+    seg('segPos'); seg('segFmt2');
+  }
+  else if(id==='extracttext'){
+    optsBox.innerHTML=`<div class="opt-row"><span class="hint">Seçilebilir metin içeren PDF'lerden çalışır. Taranmış (görüntü) PDF'lerde metin bulunamayabilir.</span></div>`;
   }
   else if(id==='reorder'){
     optsBox.innerHTML=`<div class="opt-row"><span class="hint">Dosya yükledikten sonra sayfa küçük resimlerini sürükleyerek sırala.</span></div><div class="thumbs" id="thumbs"></div>`;
@@ -556,6 +574,78 @@ const OPS={
         setStatus(`Tamamlandı — boyut: ${fmtBytes(finalSize)}. Bu dosya zaten iyi sıkıştırılmış; daha güçlü kaliteyi deneyin.`,'ok');
     }
   },
+  async pagenum(){
+    const pos=segVal("segPos")||"bc";
+    const fmt=segVal("segFmt2")||"n";
+    const startEl=document.getElementById("numStart");
+    const start=Math.max(1, parseInt((startEl&&startEl.value)||"1",10)||1);
+    const src=await PDFDocument.load(await items[0].file.arrayBuffer(),{ignoreEncryption:true});
+    const font=await src.embedFont(StandardFonts.Helvetica);
+    const pages=src.getPages(); const total=pages.length;
+    pages.forEach((pg,idx)=>{
+      const n=start+idx;
+      const txt = fmt==="nslash" ? (n+" / "+(start+total-1)) : fmt==="sayfa" ? ("Sayfa "+n) : (""+n);
+      const size=11; const tw=font.widthOfTextAtSize(txt,size);
+      const sz=pg.getSize(); const m=26;
+      const x = pos==="br" ? sz.width-m-tw : pos==="bl" ? m : (sz.width-tw)/2;
+      pg.drawText(txt,{x:x,y:m,size:size,font:font,color:rgb(0.12,0.16,0.24)});
+    });
+    download(new Blob([await src.save()],{type:"application/pdf"}),baseName(items[0].name)+"-numarali.pdf");
+    setStatus("Tamamlandı — "+total+" sayfaya numara eklendi.","ok");
+  },
+  async extracttext(){
+    const buf=await items[0].file.arrayBuffer();
+    const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+    let out=""; let hasText=false;
+    for(let i=1;i<=pdf.numPages;i++){
+      setStatus("Sayfa "+i+"/"+pdf.numPages+" okunuyor…","work");
+      const page=await pdf.getPage(i);
+      const tc=await page.getTextContent();
+      const txt=tc.items.map(function(it){return it.str;}).join(" ").replace(/\s+/g," ").trim();
+      if(txt) hasText=true;
+      out += "--- Sayfa "+i+" ---\n"+txt+"\n\n";
+    }
+    if(!hasText){ setStatus("Bu PDF taranmış görüntü olabilir; seçilebilir metin bulunamadı.","err"); return; }
+    download(new Blob([out],{type:"text/plain;charset=utf-8"}),baseName(items[0].name)+".txt");
+    setStatus("Tamamlandı — "+pdf.numPages+" sayfadan metin çıkarıldı.","ok");
+  }
 };
 
 refreshUseLabel();
+
+
+/* ---------- Hero demo (otomatik akan önizleme) ---------- */
+(function(){
+  var stage=document.getElementById('demoStage');
+  if(!stage) return;
+  var scenes=[].slice.call(stage.querySelectorAll('.scene'));
+  var menu=document.getElementById('demoMenu');
+  var items=[].slice.call(menu.querySelectorAll('.di'));
+  var cursor=document.getElementById('demoCursor');
+  var fill=document.getElementById('demoFill');
+  var i=-1, DUR=3600;
+  function go(n){
+    i=n;
+    scenes.forEach(function(s,j){ s.classList.toggle('active', j===n); });
+    items.forEach(function(it,j){ it.classList.toggle('on', j===n); });
+    var it=items[n];
+    var y=it.offsetTop + it.offsetHeight/2 - 9;
+    cursor.style.transform='translateY('+y+'px)';
+    fill.style.transition='none'; fill.style.width='0%';
+    void fill.offsetWidth;
+    fill.style.transition='width '+(DUR-200)+'ms linear'; fill.style.width='100%';
+  }
+  go(0);
+  setInterval(function(){ go((i+1)%scenes.length); }, DUR);
+})();
+
+/* ---------- Bülten (örnek; gerçek e-posta servisine bağlanmalı) ---------- */
+(function(){
+  var b=document.getElementById('newsBtn'), e=document.getElementById('newsEmail');
+  if(!b||!e) return;
+  b.addEventListener('click',function(){
+    var v=(e.value||'').trim();
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)){ e.style.borderColor='#EC1C2E'; return; }
+    e.value=''; e.placeholder='Teşekkürler! Kaydedildi ✓'; e.style.borderColor='#16A34A';
+  });
+})();
