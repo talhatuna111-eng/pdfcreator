@@ -317,6 +317,85 @@
   <div class="foot-bottom"><div class="container">© 2026 PDF Creator. Tüm hakları saklıdır.</div></div>
 </footer>
 
+<script id="pdfworker" type="text/js-worker">
+importScripts(
+ 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js',
+ 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+ 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'
+);
+var PDFDocument = PDFLib.PDFDocument;
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+function capScale(base,pages){ if(pages>200)return Math.min(base,1.4); if(pages>100)return Math.min(base,1.8); return base; }
+async function avgTextPerPage(pdf,n){ var pages=Math.min(pdf.numPages,n||5),chars=0; for(var i=1;i<=pages;i++){ var p=await pdf.getPage(i); var tc=await p.getTextContent(); chars+=tc.items.reduce(function(s,it){return s+((it.str||'').trim().length);},0);} return chars/pages; }
+function baseName(n){ var i=n.lastIndexOf('.'); return i>0?n.slice(0,i):n; }
+function pad3(n){ n=String(n); while(n.length<3)n='0'+n; return n; }
+onmessage=async function(e){
+  var d=e.data, id=d.id, op=d.op;
+  function prog(msg){ postMessage({id:id,type:'progress',msg:msg}); }
+  try{
+    if(op==='pdf2img'){
+      var fmt=d.fmt, target=d.target, base=d.base;
+      var mime=fmt==='png'?'image/png':'image/jpeg', ext=fmt==='png'?'png':'jpg';
+      var pdf=await pdfjsLib.getDocument({data:d.buf}).promise;
+      var zip=new JSZip(), single=null;
+      for(var i=1;i<=pdf.numPages;i++){
+        prog('Sayfa '+i+'/'+pdf.numPages+' işleniyor…');
+        var page=await pdf.getPage(i);
+        var vp1=page.getViewport({scale:1});
+        var longest=Math.max(vp1.width,vp1.height);
+        var tgt=target; if(pdf.numPages>250) tgt=Math.min(tgt,1920); else if(pdf.numPages>120) tgt=Math.min(tgt,2560);
+        var vp=page.getViewport({scale:tgt/longest});
+        var c=new OffscreenCanvas(Math.ceil(vp.width), Math.ceil(vp.height));
+        var ctx=c.getContext('2d'); ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+        if(fmt==='jpg'){ ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height); }
+        await page.render({canvasContext:ctx, viewport:vp, intent: pdf.numPages<=20?'print':'display'}).promise;
+        var blob=await c.convertToBlob(fmt==='png'?{type:mime}:{type:mime, quality:0.98});
+        var ab=await blob.arrayBuffer();
+        if(pdf.numPages===1){ single={ab:ab, name:base+'.'+ext, mime:mime}; }
+        else { zip.file(base+'-'+pad3(i)+'.'+ext, ab); }
+        if(page.cleanup) page.cleanup();
+      }
+      if(single){ postMessage({id:id,type:'done',result:{bytes:single.ab,name:single.name,mime:single.mime,status:'Tamamlandı — 1 sayfa '+ext.toUpperCase()+' olarak indirildi.'}},[single.ab]); }
+      else { var zbuf=await zip.generateAsync({type:'arraybuffer'}); postMessage({id:id,type:'done',result:{bytes:zbuf,name:base+'-resimler.zip',mime:'application/zip',status:'Tamamlandı — '+pdf.numPages+' sayfa '+ext.toUpperCase()+' olarak indirildi.'}},[zbuf]); }
+    }
+    else if(op==='compress'){
+      var mode=d.mode||'akilli', lvl=d.lvl||'mid';
+      var conf={high:{s:1.5,q:0.72},mid:{s:2.0,q:0.88},low:{s:2.6,q:0.95}}[lvl];
+      var decide=mode;
+      if(mode==='akilli'){ prog('PDF içeriği inceleniyor…'); var probe=await pdfjsLib.getDocument({data:d.buf.slice(0)}).promise; var avg=await avgTextPerPage(probe,5); decide=avg>=80?'koru':'max'; }
+      var outBytes;
+      if(decide==='koru'){
+        prog('Metin korunarak yeniden paketleniyor…');
+        var src=await PDFDocument.load(d.buf.slice(0),{ignoreEncryption:true,updateMetadata:false});
+        var out=await PDFDocument.create();
+        var pgs=await out.copyPages(src, src.getPageIndices()); pgs.forEach(function(p){out.addPage(p);});
+        outBytes=await out.save({useObjectStreams:true});
+      } else {
+        var pdf2=await pdfjsLib.getDocument({data:d.buf.slice(0)}).promise;
+        var out2=await PDFDocument.create();
+        for(var j=1;j<=pdf2.numPages;j++){
+          prog('Sayfa '+j+'/'+pdf2.numPages+' sıkıştırılıyor…');
+          var pg=await pdf2.getPage(j);
+          var vpPt=pg.getViewport({scale:1});
+          var vp2=pg.getViewport({scale:capScale(conf.s, pdf2.numPages)});
+          var c2=new OffscreenCanvas(Math.ceil(vp2.width), Math.ceil(vp2.height));
+          var ctx2=c2.getContext('2d'); ctx2.fillStyle='#fff'; ctx2.fillRect(0,0,c2.width,c2.height);
+          await pg.render({canvasContext:ctx2, viewport:vp2}).promise;
+          var b2=await c2.convertToBlob({type:'image/jpeg', quality:conf.q});
+          var img=await out2.embedJpg(await b2.arrayBuffer());
+          var pp=out2.addPage([vpPt.width, vpPt.height]);
+          pp.drawImage(img,{x:0,y:0,width:vpPt.width,height:vpPt.height});
+          if(pg.cleanup) pg.cleanup();
+        }
+        outBytes=await out2.save();
+      }
+      var ab2=outBytes.buffer.slice(outBytes.byteOffset, outBytes.byteOffset+outBytes.byteLength);
+      postMessage({id:id,type:'done',result:{bytes:ab2, decide:decide}},[ab2]);
+    }
+  }catch(err){ postMessage({id:id,type:'error',error:(err&&err.message)||String(err)}); }
+};
+</script>
+
 <div class="cookie" id="cookie">
   <div class="ck-inner">
     <p>Bu sitede deneyiminizi iyileştirmek ve reklam göstermek için çerezler kullanılır. Reddederseniz reklam çerezleri yüklenmez. Ayrıntılar için <a href="#gizlilik">Gizlilik Politikası</a>.</p>

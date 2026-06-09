@@ -162,8 +162,8 @@ function buildOpts(){
       <div class="opt-row"><span class="opt-label">Biçim</span>
         <div class="seg" id="segFmt"><button class="on" data-v="jpg">JPG</button><button data-v="png">PNG</button></div></div>
       <div class="opt-row"><span class="opt-label">Çözünürlük</span>
-        <div class="seg" id="segDpi"><button data-v="2">Yüksek</button><button class="on" data-v="3">Çok Yüksek</button><button data-v="4">Maksimum</button></div></div>
-      <div class="opt-row"><span class="hint">Daha yüksek çözünürlük daha keskin görsel verir; dosya boyutu da artar.</span></div>`;
+        <div class="seg" id="segDpi"><button data-v="1920">Full HD</button><button class="on" data-v="2560">2K (Yüksek)</button><button data-v="3840">4K (Maks.)</button></div></div>
+      <div class="opt-row"><span class="hint">Çıktı, seçtiğiniz uzun kenar çözünürlüğünde üretilir. JPG %98 kalitede; tamamen kayıpsız için PNG seçin.</span></div>`;
     seg('segFmt'); seg('segDpi');
   }
   else if(id==='compress'){
@@ -178,7 +178,7 @@ function buildOpts(){
         <div class="seg" id="segLvl">
           <button data-v="high">Güçlü</button>
           <button class="on" data-v="mid">Dengeli</button>
-          <button data-v="low">Hafif</button>
+          <button data-v="low">Yüksek Kalite</button>
         </div></div>
       <div class="opt-row"><span class="hint" id="cmpHint">Akıllı mod PDF'i inceler: metin içeriyorsa metni koruyarak sıkıştırır, taranmış/görsel ağırlıklıysa güçlü sıkıştırma uygular.</span></div>`;
     seg('segMode', v=>{
@@ -245,13 +245,36 @@ function addFiles(list){
 
 /* Bellek dostu: çok sayfalı/büyük belgelerde render ölçeğini sınırlar (donma/çökme önler) */
 function capScale(base,pages){
-  if(pages>80) return Math.min(base,1.4);
-  if(pages>40) return Math.min(base,1.8);
-  if(pages>20) return Math.min(base,2.2);
+  if(pages>200) return Math.min(base,1.4);
+  if(pages>100) return Math.min(base,1.8);
   return base;
 }
 /* Arayüzün nefes alması için kısa duraklama */
 function yieldUI(){ return new Promise(r=>setTimeout(r,0)); }
+
+/* ---------- Web Worker altyapısı (ağır işlemleri ana iş parçacığından çıkarır) ---------- */
+var _pdfWorker=null, _wMsgId=0, _wBroken=false;
+function workerOK(){ try{ return (typeof Worker!=='undefined') && (typeof OffscreenCanvas!=='undefined') && !!document.getElementById('pdfworker'); }catch(e){ return false; } }
+function getWorker(){
+  if(_pdfWorker) return _pdfWorker;
+  var src=document.getElementById('pdfworker').textContent;
+  var url=URL.createObjectURL(new Blob([src],{type:'application/javascript'}));
+  _pdfWorker=new Worker(url);
+  return _pdfWorker;
+}
+function runWorker(op,payload,transfer){
+  return new Promise(function(resolve,reject){
+    var w; try{ w=getWorker(); }catch(e){ reject(e); return; }
+    var id=++_wMsgId;
+    function off(){ w.removeEventListener('message',onMsg); w.removeEventListener('error',onErr); }
+    function onMsg(ev){ var dd=ev.data; if(!dd||dd.id!==id) return;
+      if(dd.type==='progress'){ setStatus(dd.msg,'work'); return; }
+      off(); if(dd.type==='done') resolve(dd.result); else reject(new Error(dd.error||'Worker hatası')); }
+    function onErr(){ off(); reject(new Error('Worker başlatılamadı')); }
+    w.addEventListener('message',onMsg); w.addEventListener('error',onErr);
+    w.postMessage(Object.assign({id:id,op:op},payload), transfer||[]);
+  });
+}
 
 function renderFiles(){
   fileList.innerHTML='';
@@ -496,7 +519,41 @@ const OPS={
   },
 
   async pdf2img(){
-    const fmt=segVal('segFmt'); const scale=+segVal('segDpi');
+    const fmt=segVal('segFmt'); const target=+segVal('segDpi');
+    if(workerOK() && !_wBroken){
+      try{
+        const wbuf=await items[0].file.arrayBuffer();
+        const res=await runWorker('pdf2img',{buf:wbuf,fmt:fmt,target:target,base:baseName(items[0].name)},[wbuf]);
+        download(new Blob([res.bytes],{type:res.mime}),res.name);
+        setStatus(res.status,'ok'); return;
+      }catch(e){ _wBroken=true; }
+    }
+    return this.pdf2imgMain();
+  },
+  async compress(){
+    const mode=segVal('segMode')||'akilli';
+    const lvl=segVal('segLvl')||'mid';
+    const origSize=items[0].size; const base=baseName(items[0].name);
+    if(workerOK() && !_wBroken){
+      try{
+        const wbuf=await items[0].file.arrayBuffer();
+        const res=await runWorker('compress',{buf:wbuf,mode:mode,lvl:lvl,base:base},[wbuf]);
+        let finalBytes=res.bytes, finalSize=res.bytes.byteLength, fellBack=false;
+        if(res.decide==='koru' && finalSize>=origSize){ finalBytes=await items[0].file.arrayBuffer(); finalSize=origSize; fellBack=true; }
+        download(new Blob([finalBytes],{type:'application/pdf'}),`${base}-sikistirilmis.pdf`);
+        const pct=Math.round((1-finalSize/origSize)*100);
+        if(res.decide==='koru'){
+          setStatus(fellBack ? `Tamamlandı — dosya zaten optimize (${fmtBytes(origSize)}). Metin korundu. Daha fazla küçültmek için "Maksimum küçült" modunu deneyebilirsiniz (metin görsele dönüşür).` : `Tamamlandı — ${fmtBytes(origSize)} → ${fmtBytes(finalSize)} (%${pct} küçüldü). Metin ve yazı tipleri korundu.`,'ok');
+        }else{
+          setStatus(finalSize<origSize ? `Tamamlandı — ${fmtBytes(origSize)} → ${fmtBytes(finalSize)} (%${pct} küçüldü).` : `Tamamlandı — boyut: ${fmtBytes(finalSize)}. Bu dosya zaten iyi sıkıştırılmış; daha güçlü kaliteyi deneyin.`,'ok');
+        }
+        return;
+      }catch(e){ _wBroken=true; }
+    }
+    return this.compressMain();
+  },
+  async pdf2imgMain(){
+    const fmt=segVal('segFmt'); const target=+segVal('segDpi');
     const buf=await items[0].file.arrayBuffer();
     const pdf=await pdfjsLib.getDocument({data:buf}).promise;
     const base=baseName(items[0].name);
@@ -506,13 +563,15 @@ const OPS={
     for(let i=1;i<=pdf.numPages;i++){
       setStatus(`Sayfa ${i}/${pdf.numPages} işleniyor…`,'work');
       const page=await pdf.getPage(i);
-      const rscale=capScale(scale*1.5, pdf.numPages);
-      const vp=page.getViewport({scale:rscale});
-      const c=document.createElement('canvas'); c.width=vp.width; c.height=vp.height;
+      const vp1=page.getViewport({scale:1});
+      const longest=Math.max(vp1.width,vp1.height);
+      let tgt=target; if(pdf.numPages>250) tgt=Math.min(tgt,1920); else if(pdf.numPages>120) tgt=Math.min(tgt,2560);
+      const vp=page.getViewport({scale:tgt/longest});
+      const c=document.createElement('canvas'); c.width=Math.ceil(vp.width); c.height=Math.ceil(vp.height);
       const ctx=c.getContext('2d'); ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
       if(fmt==='jpg'){ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);}
-      await page.render({canvasContext:ctx,viewport:vp,intent: pdf.numPages<=12?'print':'display'}).promise;
-      const blob=await new Promise(r=>c.toBlob(r,mime, fmt==='png'?undefined:0.95));
+      await page.render({canvasContext:ctx,viewport:vp,intent: pdf.numPages<=20?'print':'display'}).promise;
+      const blob=await new Promise(r=>c.toBlob(r,mime, fmt==='png'?undefined:0.98));
       zip.file(`${base}-${String(i).padStart(3,'0')}.${ext}`,blob);
       if(page.cleanup) page.cleanup();
       c.width=c.height=0;
@@ -527,10 +586,10 @@ const OPS={
     setStatus(`Tamamlandı — ${pdf.numPages} sayfa ${ext.toUpperCase()} olarak indirildi.`,'ok');
   },
 
-  async compress(){
+  async compressMain(){
     const mode=segVal('segMode')||'akilli';
     const lvl=segVal('segLvl')||'mid';
-    const conf={high:{s:1.0,q:0.5},mid:{s:1.4,q:0.65},low:{s:2.0,q:0.8}}[lvl];
+    const conf={high:{s:1.5,q:0.72},mid:{s:2.0,q:0.88},low:{s:2.6,q:0.95}}[lvl];
     const origBuf=await items[0].file.arrayBuffer();
     const origSize=items[0].size;
     const base=baseName(items[0].name);
